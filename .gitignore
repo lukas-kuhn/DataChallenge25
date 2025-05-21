@@ -1,0 +1,8 @@
+
+/data/
+/vae_outputs/
+/venv/
+
+*.png
+
+.DS_Store

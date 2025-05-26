@@ -1,0 +1,8 @@
+/obverse
+/reverse
+/wandb
+/outputs
+*.slurm
+*.err
+*.out
+*.pyc

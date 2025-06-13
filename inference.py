@@ -149,7 +149,7 @@ def interpolate_between_images(model, image_path1, image_path2, device, num_step
         
         return interpolations
 
-def explore_latent_space(model, device, base_image_path=None, save_path=None):
+def explore_latent_space(model, device, config, base_image_path=None, save_path=None):
     """Explore the latent space by modifying specific dimensions"""
     if base_image_path:
         # Start from a real image
@@ -216,10 +216,13 @@ def explore_latent_space(model, device, base_image_path=None, save_path=None):
 def main():
     parser = argparse.ArgumentParser(description='VAE Inference and Analysis')
     parser.add_argument('--checkpoint', type=str, required=True, help='Path to model checkpoint')
-    parser.add_argument('--mode', type=str, choices=['reconstruct', 'generate', 'interpolate', 'explore'], 
+    parser.add_argument('--mode', type=str, choices=['reconstruct', 'generate', 'interpolate', 'explore', 'calculate_latents', 'plot'], 
                        required=True, help='Inference mode')
+    parser.add_argument('--plot_type', type=str, choices=['pca', 'umap', 'tsne', 'hdbscan'], default='umap', help='Type of plot for analysis')
     parser.add_argument('--image', type=str, help='Path to input image (for reconstruct/interpolate)')
     parser.add_argument('--image2', type=str, help='Path to second image (for interpolate)')
+    parser.add_argument('--latents', type=str, help='Path to existing latents (for analysis)')
+    parser.add_argument('--image_folder', type=str, help='Path to image folder (for analysis)')
     parser.add_argument('--output', type=str, help='Output path for saving results')
     parser.add_argument('--num_samples', type=int, default=16, help='Number of samples to generate')
     parser.add_argument('--num_steps', type=int, default=10, help='Number of interpolation steps')
@@ -252,7 +255,32 @@ def main():
         interpolate_between_images(model, args.image, args.image2, device, args.num_steps, args.output)
         
     elif args.mode == 'explore':
-        explore_latent_space(model, device, args.image, args.output)
+        explore_latent_space(model, device, config, args.image, args.output)
+
+    elif args.mode == 'calculate_latents':
+        if not args.image_folder or not args.output:
+            print("Error: --image_folder and --output required for calculating latents")
+            return
+        a.calculate_latents(model, args.image_folder, args.output)
+
+    elif args.mode == 'plot':
+        if not args.latents:
+            print("Error: --latents required for plotting")
+            return
+        data = a.load_latents(args.latents)
+        if args.plot_type == 'pca':
+            print("Performing PCA analysis...")
+            a.PCA_plot(data)
+        elif args.plot_type == 'umap':
+            print("Performing UMAP analysis...")
+            a.UMAP_plot(data)
+        elif args.plot_type == 'tsne':
+            print("Performing t-SNE analysis...")
+            a.tSNE_plot(data)
+        elif args.plot_type == 'hdbscan':
+            print("Performing HDBSCAN analysis...")
+            a.HDBSCAN(data)
+
 
 if __name__ == '__main__':
     main() 

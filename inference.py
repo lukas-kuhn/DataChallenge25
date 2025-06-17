@@ -8,6 +8,7 @@ import argparse
 import os
 from pathlib import Path
 
+import analysis as a
 from vae_model import VAE
 
 def denormalize(tensor):

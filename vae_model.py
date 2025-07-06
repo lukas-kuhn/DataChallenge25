@@ -267,6 +267,15 @@ class VAE(nn.Module):
         z = torch.randn(num_samples, self.latent_dim, 7, 7, device=device)
         return self.decode(z)
 
+    def get_1d_latent(self, x):
+        """Get a 1D latent representation suitable for PCA.
+        Returns the mean of the latent distribution (mu) flattened to 1D.
+        """
+        mu, _ = self.encode(x)
+        # Flatten the spatial dimensions
+        batch_size = mu.shape[0]
+        return mu.view(batch_size, -1)  # Shape: [batch_size, latent_dim * spatial_dim * spatial_dim]
+
 def vae_loss(recon_x, x, mu, logvar, beta=1.0):
     """VAE loss with KL divergence and reconstruction loss"""
     # Reconstruction loss (MSE)

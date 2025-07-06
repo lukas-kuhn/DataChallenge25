@@ -233,8 +233,11 @@ class VAE(nn.Module):
         final_channels = model_channels * channel_mult[-1]
         self.final_channels = final_channels
         
-        # Flatten the spatial dimensions to get the full feature size
-        self.encoder_output_size = final_channels * self.final_spatial_size * self.final_spatial_size
+        # Dummy forward pass to calculate actual encoder output size
+        with torch.no_grad():
+            dummy_input = torch.randn(1, in_channels, 224, 224)
+            dummy_output = self.encoder(dummy_input)
+            self.encoder_output_size = dummy_output.numel() // dummy_output.shape[0]
         
         # 1D Latent space projection (much smaller bottleneck)
         self.to_mu = nn.Linear(self.encoder_output_size, latent_dim)
@@ -270,7 +273,10 @@ class VAE(nn.Module):
         h = self.from_latent(z)
         # Reshape back to spatial dimensions for decoder
         batch_size = h.shape[0]
-        h = h.view(batch_size, self.final_channels, self.final_spatial_size, self.final_spatial_size)
+        # Calculate actual spatial dimensions from encoder output size
+        total_elements = self.encoder_output_size
+        spatial_size = int((total_elements // self.final_channels) ** 0.5)
+        h = h.view(batch_size, self.final_channels, spatial_size, spatial_size)
         return self.decoder(h)
     
     def forward(self, x):

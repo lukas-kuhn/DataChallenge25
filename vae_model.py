@@ -209,10 +209,10 @@ class UNetDecoder(nn.Module):
         return h
 
 class VAE(nn.Module):
-    """Memory-optimized UNet-based VAE with 1D bottleneck for high-quality image reconstruction"""
-    def __init__(self, in_channels=3, latent_dim=64, model_channels=96, 
-                 channel_mult=(1, 1, 2, 3, 4), num_res_blocks=2, 
-                 attention_resolutions=(16,), dropout=0.0, skip_dropout=0.0):
+    """Scaled UNet-based VAE with 1D bottleneck for high-quality fine-grained image reconstruction"""
+    def __init__(self, in_channels=3, latent_dim=128, model_channels=128, 
+                 channel_mult=(1, 2, 3, 4, 5, 6), num_res_blocks=3, 
+                 attention_resolutions=(32, 16, 8), dropout=0.0, skip_dropout=0.0):
         super().__init__()
         self.latent_dim = latent_dim
         

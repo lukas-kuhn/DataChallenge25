@@ -227,10 +227,11 @@ def main():
     parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--beta', type=float, default=1.0, help='Beta for KL loss weighting')
     parser.add_argument('--beta_schedule', action='store_true', help='Use beta scheduling')
-    parser.add_argument('--latent_dim', type=int, default=256, help='Latent dimension')
+    parser.add_argument('--latent_dim', type=int, default=64, help='Latent dimension')
     parser.add_argument('--model_channels', type=int, default=96, help='Base model channels')
     parser.add_argument('--num_res_blocks', type=int, default=2, help='Number of residual blocks per down/up block')
     parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate')
+    parser.add_argument('--skip_dropout', type=float, default=0.1, help='Skip connection dropout rate')
     parser.add_argument('--resume', type=str, default=None, help='Path to checkpoint to resume from')
     parser.add_argument('--validation_split', type=float, default=0.1, help='Validation split ratio')
     parser.add_argument('--save_every', type=int, default=10, help='Save model every N epochs')
@@ -311,7 +312,8 @@ def main():
         channel_mult=(1, 1, 2, 3, 4),  # Memory-optimized for 16GB VRAM
         num_res_blocks=args.num_res_blocks,
         attention_resolutions=(16,),  # Single attention resolution to save memory
-        dropout=args.dropout
+        dropout=args.dropout,
+        skip_dropout=args.skip_dropout
     ).to(device)
     
     # Count parameters

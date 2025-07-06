@@ -5,10 +5,11 @@ import math
 
 class ResidualBlock(nn.Module):
     """Residual block with group normalization and swish activation"""
-    def __init__(self, in_channels, out_channels, time_emb_dim=None, dropout=0.0):
+    def __init__(self, in_channels, out_channels, time_emb_dim=None, dropout=0.0, skip_dropout=0.0):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
+        self.skip_dropout = skip_dropout
         
         self.norm1 = nn.GroupNorm(32, in_channels)
         self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
@@ -33,6 +34,11 @@ class ResidualBlock(nn.Module):
         h = F.silu(h)
         h = self.dropout(h)
         h = self.conv2(h)
+        
+        # Apply skip connection dropout during training
+        if self.training and self.skip_dropout > 0:
+            if torch.rand(1).item() < self.skip_dropout:
+                return h  # Skip the residual connection
         
         return h + self.shortcut(x)
 
@@ -65,16 +71,16 @@ class AttentionBlock(nn.Module):
 
 class DownBlock(nn.Module):
     """Downsampling block with residual connections"""
-    def __init__(self, in_channels, out_channels, num_layers=2, downsample=True, attention=False, dropout=0.0):
+    def __init__(self, in_channels, out_channels, num_layers=2, downsample=True, attention=False, dropout=0.0, skip_dropout=0.0):
         super().__init__()
         self.layers = nn.ModuleList()
         
         # First layer might change channels
-        self.layers.append(ResidualBlock(in_channels, out_channels, dropout=dropout))
+        self.layers.append(ResidualBlock(in_channels, out_channels, dropout=dropout, skip_dropout=skip_dropout))
         
         # Additional layers
         for _ in range(num_layers - 1):
-            self.layers.append(ResidualBlock(out_channels, out_channels, dropout=dropout))
+            self.layers.append(ResidualBlock(out_channels, out_channels, dropout=dropout, skip_dropout=skip_dropout))
             
         if attention:
             self.layers.append(AttentionBlock(out_channels))
@@ -92,17 +98,17 @@ class DownBlock(nn.Module):
 
 class UpBlock(nn.Module):
     """Upsampling block with residual connections"""
-    def __init__(self, in_channels, out_channels, num_layers=2, upsample=True, attention=False, dropout=0.0):
+    def __init__(self, in_channels, out_channels, num_layers=2, upsample=True, attention=False, dropout=0.0, skip_dropout=0.0):
         super().__init__()
         self.upsample = nn.ConvTranspose2d(in_channels, in_channels, 4, stride=2, padding=1) if upsample else None
         
         self.layers = nn.ModuleList()
         # First layer might change channels
-        self.layers.append(ResidualBlock(in_channels, out_channels, dropout=dropout))
+        self.layers.append(ResidualBlock(in_channels, out_channels, dropout=dropout, skip_dropout=skip_dropout))
         
         # Additional layers
         for _ in range(num_layers - 1):
-            self.layers.append(ResidualBlock(out_channels, out_channels, dropout=dropout))
+            self.layers.append(ResidualBlock(out_channels, out_channels, dropout=dropout, skip_dropout=skip_dropout))
             
         if attention:
             self.layers.append(AttentionBlock(out_channels))
@@ -119,7 +125,7 @@ class UpBlock(nn.Module):
 class UNetEncoder(nn.Module):
     """UNet encoder for VAE"""
     def __init__(self, in_channels=3, model_channels=128, channel_mult=(1, 2, 3, 4, 5), 
-                 num_res_blocks=3, attention_resolutions=(16, 8), dropout=0.0):
+                 num_res_blocks=3, attention_resolutions=(16, 8), dropout=0.0, skip_dropout=0.0):
         super().__init__()
         self.in_channels = in_channels
         self.model_channels = model_channels
@@ -137,15 +143,15 @@ class UNetEncoder(nn.Module):
             downsample = i < len(channels) - 1
             
             self.down_blocks.append(
-                DownBlock(in_ch, out_ch, num_res_blocks, downsample, attention, dropout)
+                DownBlock(in_ch, out_ch, num_res_blocks, downsample, attention, dropout, skip_dropout)
             )
             in_ch = out_ch
             
         # Middle block
         self.mid_block = nn.Sequential(
-            ResidualBlock(channels[-1], channels[-1], dropout=dropout),
+            ResidualBlock(channels[-1], channels[-1], dropout=dropout, skip_dropout=skip_dropout),
             AttentionBlock(channels[-1]),
-            ResidualBlock(channels[-1], channels[-1], dropout=dropout)
+            ResidualBlock(channels[-1], channels[-1], dropout=dropout, skip_dropout=skip_dropout)
         )
         
     def forward(self, x):
@@ -160,7 +166,7 @@ class UNetEncoder(nn.Module):
 class UNetDecoder(nn.Module):
     """UNet decoder for VAE"""
     def __init__(self, out_channels=3, model_channels=128, channel_mult=(1, 2, 3, 4, 5),
-                 num_res_blocks=3, attention_resolutions=(16, 8), dropout=0.0):
+                 num_res_blocks=3, attention_resolutions=(16, 8), dropout=0.0, skip_dropout=0.0):
         super().__init__()
         self.out_channels = out_channels
         self.model_channels = model_channels
@@ -169,9 +175,9 @@ class UNetDecoder(nn.Module):
         
         # Middle block
         self.mid_block = nn.Sequential(
-            ResidualBlock(channels[-1], channels[-1], dropout=dropout),
+            ResidualBlock(channels[-1], channels[-1], dropout=dropout, skip_dropout=skip_dropout),
             AttentionBlock(channels[-1]),
-            ResidualBlock(channels[-1], channels[-1], dropout=dropout)
+            ResidualBlock(channels[-1], channels[-1], dropout=dropout, skip_dropout=skip_dropout)
         )
         
         # Upsampling blocks
@@ -184,7 +190,7 @@ class UNetDecoder(nn.Module):
             upsample = i < len(reversed_channels) - 1
             
             self.up_blocks.append(
-                UpBlock(in_ch, out_ch, num_res_blocks, upsample, attention, dropout)
+                UpBlock(in_ch, out_ch, num_res_blocks, upsample, attention, dropout, skip_dropout)
             )
             
         # Final convolution
@@ -203,10 +209,10 @@ class UNetDecoder(nn.Module):
         return h
 
 class VAE(nn.Module):
-    """Memory-optimized UNet-based VAE for high-quality image reconstruction"""
-    def __init__(self, in_channels=3, latent_dim=256, model_channels=96, 
+    """Memory-optimized UNet-based VAE with 1D bottleneck for high-quality image reconstruction"""
+    def __init__(self, in_channels=3, latent_dim=64, model_channels=96, 
                  channel_mult=(1, 1, 2, 3, 4), num_res_blocks=2, 
-                 attention_resolutions=(16,), dropout=0.0):
+                 attention_resolutions=(16,), dropout=0.0, skip_dropout=0.0):
         super().__init__()
         self.latent_dim = latent_dim
         
@@ -217,18 +223,23 @@ class VAE(nn.Module):
             channel_mult=channel_mult,
             num_res_blocks=num_res_blocks,
             attention_resolutions=attention_resolutions,
-            dropout=dropout
+            dropout=dropout,
+            skip_dropout=skip_dropout
         )
         
         # Calculate the spatial dimensions after encoding
         # For 224x224 input with 4 downsampling layers: 224 -> 112 -> 56 -> 28 -> 14 -> 7
-        final_spatial_size = 7
+        self.final_spatial_size = 7
         final_channels = model_channels * channel_mult[-1]
+        self.final_channels = final_channels
         
-        # Latent space projection
-        self.to_mu = nn.Conv2d(final_channels, latent_dim, 1)
-        self.to_logvar = nn.Conv2d(final_channels, latent_dim, 1)
-        self.from_latent = nn.Conv2d(latent_dim, final_channels, 1)
+        # Flatten the spatial dimensions to get the full feature size
+        self.encoder_output_size = final_channels * self.final_spatial_size * self.final_spatial_size
+        
+        # 1D Latent space projection (much smaller bottleneck)
+        self.to_mu = nn.Linear(self.encoder_output_size, latent_dim)
+        self.to_logvar = nn.Linear(self.encoder_output_size, latent_dim)
+        self.from_latent = nn.Linear(latent_dim, self.encoder_output_size)
         
         # Decoder
         self.decoder = UNetDecoder(
@@ -237,13 +248,17 @@ class VAE(nn.Module):
             channel_mult=channel_mult,
             num_res_blocks=num_res_blocks,
             attention_resolutions=attention_resolutions,
-            dropout=dropout
+            dropout=dropout,
+            skip_dropout=skip_dropout
         )
         
     def encode(self, x):
         h = self.encoder(x)
-        mu = self.to_mu(h)
-        logvar = self.to_logvar(h)
+        # Flatten spatial dimensions for 1D bottleneck
+        batch_size = h.shape[0]
+        h_flat = h.view(batch_size, -1)
+        mu = self.to_mu(h_flat)
+        logvar = self.to_logvar(h_flat)
         return mu, logvar
     
     def reparameterize(self, mu, logvar):
@@ -253,6 +268,9 @@ class VAE(nn.Module):
     
     def decode(self, z):
         h = self.from_latent(z)
+        # Reshape back to spatial dimensions for decoder
+        batch_size = h.shape[0]
+        h = h.view(batch_size, self.final_channels, self.final_spatial_size, self.final_spatial_size)
         return self.decoder(h)
     
     def forward(self, x):
@@ -262,19 +280,16 @@ class VAE(nn.Module):
         return recon, mu, logvar
     
     def sample(self, num_samples, device):
-        # Sample from latent space - need to get the right spatial dimensions
-        # For our setup, latent space is latent_dim x 7 x 7
-        z = torch.randn(num_samples, self.latent_dim, 7, 7, device=device)
+        # Sample from 1D latent space
+        z = torch.randn(num_samples, self.latent_dim, device=device)
         return self.decode(z)
 
     def get_1d_latent(self, x):
         """Get a 1D latent representation suitable for PCA.
-        Returns the mean of the latent distribution (mu) flattened to 1D.
+        Returns the mean of the latent distribution (mu) which is already 1D.
         """
         mu, _ = self.encode(x)
-        # Flatten the spatial dimensions
-        batch_size = mu.shape[0]
-        return mu.view(batch_size, -1)  # Shape: [batch_size, latent_dim * spatial_dim * spatial_dim]
+        return mu  # Shape: [batch_size, latent_dim]
 
 def vae_loss(recon_x, x, mu, logvar, beta=1.0):
     """VAE loss with KL divergence and reconstruction loss"""

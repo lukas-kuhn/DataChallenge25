@@ -86,7 +86,9 @@ def save_reconstruction_samples(model, dataloader, device, save_path, num_sample
     model.eval()
     with torch.no_grad():
         batch = next(iter(dataloader))
-        batch = batch[:num_samples].to(device)
+        # Ensure we don't request more samples than available
+        actual_samples = min(num_samples, batch.size(0))
+        batch = batch[:actual_samples].to(device)
         
         recon, _, _ = model(batch)
         
@@ -95,9 +97,13 @@ def save_reconstruction_samples(model, dataloader, device, save_path, num_sample
         recon_denorm = denormalize(recon.cpu())
         
         # Create comparison plot
-        fig, axes = plt.subplots(2, num_samples, figsize=(2 * num_samples, 4))
+        fig, axes = plt.subplots(2, actual_samples, figsize=(2 * actual_samples, 4))
         
-        for i in range(num_samples):
+        # Handle case where actual_samples is 1 (axes won't be 2D)
+        if actual_samples == 1:
+            axes = axes.reshape(2, 1)
+        
+        for i in range(actual_samples):
             # Original images
             axes[0, i].imshow(batch_denorm[i].permute(1, 2, 0).clamp(0, 1))
             axes[0, i].set_title('Original')

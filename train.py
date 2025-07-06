@@ -165,7 +165,7 @@ def train_epoch(model, dataloader, optimizer, device, beta=1.0, scaler=None):
             
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
             scaler.step(optimizer)
             scaler.update()
         else:
@@ -173,9 +173,14 @@ def train_epoch(model, dataloader, optimizer, device, beta=1.0, scaler=None):
             recon, mu, logvar = model(batch)
             loss, recon_loss, kl_loss = vae_loss(recon, batch, mu, logvar, beta)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
             optimizer.step()
         
+        # Check for NaN values
+        if torch.isnan(loss) or torch.isinf(loss):
+            print(f"Warning: NaN or Inf loss detected at step {len(pbar)}. Skipping batch.")
+            continue
+            
         total_loss += loss.item()
         total_recon_loss += recon_loss.item()
         total_kl_loss += kl_loss.item()
@@ -230,8 +235,8 @@ def main():
     parser.add_argument('--output_dir', type=str, default='outputs', help='Output directory for models and logs')
     parser.add_argument('--batch_size', type=int, default=4, help='Batch size')
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs')
-    parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate')
-    parser.add_argument('--beta', type=float, default=1.0, help='Beta for KL loss weighting')
+    parser.add_argument('--learning_rate', type=float, default=1e-5, help='Learning rate')
+    parser.add_argument('--beta', type=float, default=0.01, help='Beta for KL loss weighting')
     parser.add_argument('--beta_schedule', action='store_true', help='Use beta scheduling')
     parser.add_argument('--latent_dim', type=int, default=128, help='Latent dimension')
     parser.add_argument('--model_channels', type=int, default=128, help='Base model channels')
@@ -328,8 +333,8 @@ def main():
     print(f"Total parameters: {total_params:,}")
     print(f"Trainable parameters: {trainable_params:,}")
     
-    # Optimizer and scheduler
-    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-6)
+    # Optimizer and scheduler with more conservative settings
+    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-8, eps=1e-8)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.num_epochs)
     
     # Resume from checkpoint if specified
@@ -356,8 +361,8 @@ def main():
         
         # Beta scheduling for KL loss
         if args.beta_schedule:
-            # Gradually increase beta from 0 to target value
-            beta = min(args.beta, args.beta * (epoch / 50))
+            # Gradually increase beta from 0 to target value over more epochs
+            beta = min(args.beta, args.beta * (epoch / 100))
         else:
             beta = args.beta
         

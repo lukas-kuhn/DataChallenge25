@@ -6,3 +6,4 @@
 *.err
 *.out
 *.pyc
+*.pth

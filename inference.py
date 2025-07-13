@@ -159,8 +159,8 @@ def explore_latent_space(model, device, config, base_image_path=None, save_path=
             mu, logvar = model.encode(image_tensor)
             base_z = mu.clone()
     else:
-        # Start from random noise
-        base_z = torch.randn(1, config['latent_dim'], 7, 7, device=device)
+        # Start from random noise (1D latent space)
+        base_z = torch.randn(1, config['latent_dim'], device=device)
     
     # Explore different latent dimensions
     fig, axes = plt.subplots(3, 7, figsize=(14, 6))
@@ -181,13 +181,13 @@ def explore_latent_space(model, device, config, base_image_path=None, save_path=
             if i == 3:  # Skip center (already done)
                 continue
                 
-            # Modify random latent dimensions
+            # Modify random latent dimensions (1D latent space)
             z_modified = base_z.clone()
             
             # Randomly select some dimensions to modify
-            dims_to_modify = torch.randperm(config['latent_dim'])[:10]  # Modify 10 random dimensions
+            dims_to_modify = torch.randperm(config['latent_dim'])[:min(10, config['latent_dim'])]  # Modify up to 10 random dimensions
             for dim in dims_to_modify:
-                z_modified[0, dim, :, :] += var * variation_scale * torch.randn_like(z_modified[0, dim, :, :]) * 0.1
+                z_modified[0, dim] += var * variation_scale * torch.randn(1, device=z_modified.device) * 0.1
             
             recon = model.decode(z_modified)
             recon_denorm = denormalize(recon.cpu().squeeze(0))

@@ -66,7 +66,7 @@ def load_latents(path):
     except Exception as e:
         print(f"Error loading latents from {path}: {e}")
         exit(1)
-    print(f"Loaded {len(data)} latents from {path}")
+    print(f"Loaded {len(data['labels'])} latents from {path}")
     return data
 
 

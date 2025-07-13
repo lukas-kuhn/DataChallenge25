@@ -7,3 +7,5 @@
 *.out
 *.pyc
 *.pth
+*.jpg
+*.npz

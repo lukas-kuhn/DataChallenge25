@@ -238,7 +238,7 @@ def main():
     parser.add_argument('--learning_rate', type=float, default=1e-5, help='Learning rate')
     parser.add_argument('--beta', type=float, default=0.01, help='Beta for KL loss weighting')
     parser.add_argument('--beta_schedule', action='store_true', help='Use beta scheduling')
-    parser.add_argument('--latent_dim', type=int, default=128, help='Latent dimension')
+    parser.add_argument('--latent_dim', type=int, default=1024, help='Latent dimension')
     parser.add_argument('--model_channels', type=int, default=128, help='Base model channels')
     parser.add_argument('--num_res_blocks', type=int, default=3, help='Number of residual blocks per down/up block')
     parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate')
@@ -402,36 +402,7 @@ def main():
                 'train_time': train_time,
                 'val_time': val_time
             })
-        
-        # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'best_val_loss': best_val_loss,
-                'train_losses': train_losses,
-                'val_losses': val_losses,
-                'config': vars(args)
-            }, os.path.join(args.output_dir, 'checkpoints', 'best_model.pth'))
-            
-            print(f"New best validation loss: {best_val_loss:.4f}")
-        
-        # Save periodic checkpoint
-        if (epoch + 1) % args.save_every == 0:
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'best_val_loss': best_val_loss,
-                'train_losses': train_losses,
-                'val_losses': val_losses,
-                'config': vars(args)
-            }, os.path.join(args.output_dir, 'checkpoints', f'checkpoint_epoch_{epoch + 1}.pth'))
-        
+
         # Save sample reconstructions and generations
         if (epoch + 1) % 5 == 0:
             recon_fig = save_reconstruction_samples(

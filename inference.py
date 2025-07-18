@@ -26,10 +26,10 @@ def load_model(checkpoint_path, device):
         in_channels=3,
         latent_dim=config['latent_dim'],
         model_channels=config['model_channels'],
-        channel_mult=(1, 1, 2, 3, 4),  # Match training configuration
+        channel_mult=(1, 2, 3, 4, 5, 6),  # Match training configuration
         num_res_blocks=config['num_res_blocks'],
-        attention_resolutions=(16,),  # Match training configuration
-        dropout=0.0  # No dropout during inference
+        attention_resolutions=(32, 16, 8),  # Match training configuration
+        dropout=0.0,  # No dropout during inference
     ).to(device)
     
     model.load_state_dict(checkpoint['model_state_dict'])

@@ -56,7 +56,7 @@ def interpolate_latents(alpha, mu1_flat, mu2_flat, interp_mode, model):
     img_pil = to_pil_image(img_tensor)
     return img_pil
 
-def rotate_and_shift(image, rotation_degree, x_offset, y_offset, zoom=1.0, fill=(255, 255, 255)):
+def rotate_shift_zoom(image, rotation_degree, x_offset, y_offset, zoom=1.0, fill=(255, 255, 255)):
     orig_size = image.size
     zoomed_size = (int(orig_size[0] * zoom), int(orig_size[1] * zoom))
     zoomed_img = image.resize(zoomed_size, resample=Image.BICUBIC)
@@ -73,23 +73,25 @@ def rotate_and_shift(image, rotation_degree, x_offset, y_offset, zoom=1.0, fill=
     
     return canvas
 
-def add_grid(img, grid_size=20, line_color=(0, 255, 0, 200)):
-    # RGBA-Bild erstellen, damit das Raster transparent ist
-    img = img.convert("RGBA")
-    overlay = Image.new("RGBA", img.size, (0,0,0,0))
-    draw = ImageDraw.Draw(overlay)
-
+def add_grid(img, grid_size=56, line_color=(255, 0, 0), line_width=1):
+    """
+    Zeichnet ein Raster direkt auf ein RGB-Bild.
+    Transparenz ist dann nicht möglich, aber für einfarbige Linien reicht RGB.
+    """
+    draw = ImageDraw.Draw(img)
     width, height = img.size
+
+    # Vertikale Linien
     for x in range(0, width, grid_size):
-        draw.line([(x,0),(x,height)], fill=line_color)
+        draw.line([(x, 0), (x, height)], fill=line_color, width=line_width)
+
+    # Horizontale Linien
     for y in range(0, height, grid_size):
-        draw.line([(0,y),(width,y)], fill=line_color)
+        draw.line([(0, y), (width, y)], fill=line_color, width=line_width)
 
-    # Raster auf das Bild legen
-    combined = Image.alpha_composite(img, overlay)
-    return combined.convert("RGB")
+    return img
 
-def add_border(image, border_size=5, border_color=(0, 0, 0)):
+def add_border(image, border_size=2, border_color=(0, 0, 0)):
     width, height = image.size
     new_size = (width + 2 * border_size, height + 2 * border_size)
     bordered = Image.new("RGB", new_size, border_color)
@@ -112,36 +114,28 @@ def resize_and_pad(img, target_size=(224, 224), background_color=(255, 255, 255)
 
     return new_img
 
-def add_crosshair(canvas_size=(224, 224), color=(255, 0, 0), thickness=1):
+def add_crosshair(img, color=(255, 0, 0), line_width=1):
     """
-    Erzeugt ein Bild mit einem fixen Fadenkreuz in der Mitte.
+    Fügt dem gegebenen Bild ein Fadenkreuz in der Mitte hinzu.
     """
-    crosshair = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(crosshair)
-
-    w, h = canvas_size
+    w, h = img.size
+    draw = ImageDraw.Draw(img)
     center_x, center_y = w // 2, h // 2
-
-    # Vertikale Linie
-    draw.line([(center_x, 0), (center_x, h)], fill=color, width=thickness)
-    # Horizontale Linie
-    draw.line([(0, center_y), (w, center_y)], fill=color, width=thickness)
-
-    return crosshair
-
-def overlay_image_with_crosshair(img, crosshair_img):
-    """
-    Legt das transformierte Bild auf die Basis und zieht darüber das Fadenkreuz.
-    """
-    result = Image.new("RGBA", img.size)
-    result.paste(img, (0, 0), img.convert("RGBA"))
-    result.paste(crosshair_img, (0, 0), crosshair_img)
-    return result.convert("RGB")
-
+    draw.line([(center_x, 0), (center_x, h)], fill=color, width=line_width)
+    draw.line([(0, center_y), (w, center_y)], fill=color, width=line_width)
+    return img
 
 
 def main():
     st.title("Bildinterpolation mit Slider")
+
+    # Session State für Reset-Funktionalität initialisieren
+    if 'reset_counter' not in st.session_state:
+        st.session_state.reset_counter = 0
+    if 'last_img1_name' not in st.session_state:
+        st.session_state.last_img1_name = None
+    if 'last_img2_name' not in st.session_state:
+        st.session_state.last_img2_name = None
 
     # Bildauswahl durch den Nutzer
     img1_file = st.file_uploader("Lade Bild 1 hoch", type=["png", "jpg", "jpeg"], key="img1")
@@ -150,43 +144,69 @@ def main():
 
     if img1_file and img2_file:
 
+        st.divider()
+
+        # Prüfe, ob sich die Bilder geändert haben
+        current_img1_name = img1_file.name
+        current_img2_name = img2_file.name
+        
+        if (st.session_state.last_img1_name != current_img1_name or 
+            st.session_state.last_img2_name != current_img2_name):
+            # Bilder haben sich geändert - Reset auslösen
+            st.session_state.reset_counter += 1
+            st.session_state.last_img1_name = current_img1_name
+            st.session_state.last_img2_name = current_img2_name
+
 
         img1_pil = resize_and_pad(Image.open(img1_file))
         img2_pil = resize_and_pad(Image.open(img2_file))
+        
+
+        sub_header, button_col = st.columns([5, 1])
+        with sub_header:
+            st.subheader("Bild-Transformationen")
+        with button_col:
+            if st.button("🔄 Reset", help="Setzt alle Transformationsparameter zurück"):
+                st.session_state.reset_counter += 1
+                st.rerun()
+        
+        rotation = st.slider("Rotation für Bild 1 (°)", -180, 180, 0, 1, key=f"rotation_{st.session_state.reset_counter}")
+
+        x_offset = st.slider("X-Verschiebung", -100, 100, 0, 1, key=f"x_offset_{st.session_state.reset_counter}")
+        
+        y_offset = st.slider("Y-Verschiebung", -100, 100, 0, 1, key=f"y_offset_{st.session_state.reset_counter}")
+
+        zoom = st.slider("Zoom", min_value=0.5, max_value=2.0, value=1.0, step=0.01, key=f"zoom_{st.session_state.reset_counter}")
+
+        # Reset Button und Gitteranzeige
+        col_left, col_right = st.columns([2, 1])
+        with col_left:
+            show_grid = st.checkbox("Gitter anzeigen", value=True, key=f"show_grid_{st.session_state.reset_counter}")
+        with col_right:
+            grid_type = st.radio("", ["Fadenkreuz", "Vollgitter"], horizontal=True, label_visibility="collapsed", key=f"grid_type_{st.session_state.reset_counter}")
 
 
-        # img1_grid = add_grid(img1_pil)
-        # img2_grid = add_grid(img2_pil)
+        result_img = rotate_shift_zoom(img1_pil, rotation, x_offset, y_offset, zoom)
 
-        rotation1 = st.slider("Rotation für Bild 1 (°)", -180, 180, 0, 1)
-
-        # Slider in Streamlit
-        x_offset = st.slider("X-Verschiebung", -100, 100, 0, 1)
-        y_offset = st.slider("Y-Verschiebung", -100, 100, 0, 1)
-
-        zoom = st.slider("Zoom", min_value=0.5, max_value=2.0, value=1.0, step=0.01)
-
-        # grid_size = st.slider("Gitterabstand", 10, 100, 20, step=5)
-        # show_grid = st.checkbox("Gitter anzeigen", value=True)
-
-        result_img = rotate_and_shift(img1_pil, rotation1, x_offset, y_offset, zoom)
-
-        crosshair = add_crosshair()
-        overlay1 = overlay_image_with_crosshair(result_img, crosshair)
-        overlay2 = overlay_image_with_crosshair(img2_pil, crosshair)
+        if show_grid:
+            if grid_type == "Fadenkreuz":
+                overlay1 = add_crosshair(result_img)
+                overlay2 = add_crosshair(img2_pil)
+            else: 
+                overlay1 = add_grid(result_img)
+                overlay2 = add_grid(img2_pil)
+        else:
+            overlay1 = result_img
+            overlay2 = img2_pil
 
         col1, col2 = st.columns(2)
-
-        # if show_grid:
-        #     with col1:
-        #         st.image(add_grid(result_img, grid_size=grid_size), caption="Bild 1 mit Raster", use_container_width=True)
-        #     with col2:
-        #         st.image(add_grid(img2_pil, grid_size=grid_size), caption="Bild 2 mit Raster", use_container_width=True)
-        # else:
         with col1:
-            st.image(add_border(overlay1), caption="Bild 1", use_container_width=True)
+            st.image(add_border(overlay1), caption=f"Bild 1: {current_img1_name}", use_container_width=True)
         with col2:
-            st.image(add_border(overlay2), caption="Bild 2", use_container_width=True)
+            st.image(add_border(overlay2), caption=f"Bild 2: {current_img2_name}", use_container_width=True)
+
+        st.divider()
+        st.subheader("Latent Space Interpolation")
 
         # Auswahl der Interpolationsmethode
         interp_mode = st.radio("Interpolationsmethode", options=["Linear", "SLERP"])

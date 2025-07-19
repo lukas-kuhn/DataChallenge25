@@ -37,7 +37,7 @@ def load_model(checkpoint_path, device):
     
     return model, config
 
-def preprocess_image(image_path, image_size=224):
+def preprocess_image(image_input, image_size=224):
     """Preprocess a single image for inference"""
     transform = transforms.Compose([
         transforms.Resize((image_size, image_size)),
@@ -45,7 +45,10 @@ def preprocess_image(image_path, image_size=224):
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
-    image = Image.open(image_path).convert('RGB')
+    if isinstance(image_input, Image.Image):
+        image = image_input.convert('RGB')
+    else:
+        image = Image.open(image_input).convert('RGB')
     return transform(image).unsqueeze(0)
 
 def reconstruct_image(model, image_path, device, save_path=None):

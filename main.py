@@ -4,26 +4,10 @@ import numpy as np
 import torch
 from torchvision import transforms
 from torchvision.transforms.functional import to_pil_image
-import time
+import io
 
-from inference import load_model
+from inference import load_model, preprocess_image
 from train import denormalize
-
-
-def preprocess_image(image_input, image_size=224): #TODO anpassen an neues modell und wieder auslagern
-    transform = transforms.Compose([
-        transforms.Resize((image_size, image_size)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225])
-    ])
-
-    if isinstance(image_input, Image.Image):
-        image = image_input.convert('RGB')
-    else:
-        image = Image.open(image_input).convert('RGB')
-
-    return transform(image).unsqueeze(0)
 
 def slerp(val, low, high):
     # Implementation der slerp zwischen low und high bei val (0 <= val <= 1)
@@ -41,13 +25,13 @@ def linear(val, low, high):
     # Lineare Interpolation zwischen low und high bei val (0 <= val <= 1)
     return (1 - val) * low + val * high
 
-def interpolate_latents(alpha, mu1_flat, mu2_flat, interp_mode, model):
+def interpolate_latents(alpha, mu1_flat, mu2_flat, interp_mode, model, org_mu_shape):
     if interp_mode == "Linear":
-        z_interp_flat = (1 - alpha) * mu1_flat + alpha * mu2_flat
+        z_interp_flat = linear(alpha, mu1_flat, mu2_flat)
     else:  # SLERP
         z_interp_flat = slerp(alpha, mu1_flat, mu2_flat)
 
-    z_interp = z_interp_flat.view(1, 256, 14, 14)  # z. B. [1, 256, 14, 14]
+    z_interp = z_interp_flat.view(org_mu_shape)  # z. B. [1, 256, 14, 14]
     
     with torch.no_grad():
         recon = model.decode(z_interp)
@@ -55,6 +39,18 @@ def interpolate_latents(alpha, mu1_flat, mu2_flat, interp_mode, model):
     img_tensor = denormalize(recon.squeeze(0).cpu()).clamp(0, 1)
     img_pil = to_pil_image(img_tensor)
     return img_pil
+
+def calculate_mus_flattend(model, img1, img2, device):
+    image1 = preprocess_image(img1).to(device)
+    image2 = preprocess_image(img2).to(device)
+
+    with torch.no_grad():
+        mu1, _ = model.encode(image1)
+        mu2, _ = model.encode(image2)
+
+    mu1_flat = mu1.view(1, -1)
+    mu2_flat = mu2.view(1, -1)
+    return mu1_flat, mu2_flat, mu1.shape  # Rückgabe der Form für spätere Verwendung
 
 def rotate_shift_zoom(image, rotation_degree, x_offset, y_offset, zoom=1.0, fill=(255, 255, 255)):
     orig_size = image.size
@@ -73,7 +69,7 @@ def rotate_shift_zoom(image, rotation_degree, x_offset, y_offset, zoom=1.0, fill
     
     return canvas
 
-def add_grid(img, grid_size=56, line_color=(255, 0, 0), line_width=1):
+def add_grid(img, grid_size=56, line_color=(255, 59, 48), line_width=2):
     """
     Zeichnet ein Raster direkt auf ein RGB-Bild.
     Transparenz ist dann nicht möglich, aber für einfarbige Linien reicht RGB.
@@ -114,7 +110,7 @@ def resize_and_pad(img, target_size=(224, 224), background_color=(255, 255, 255)
 
     return new_img
 
-def add_crosshair(img, color=(255, 0, 0), line_width=1):
+def add_crosshair(img, color=(255, 59, 48), line_width=2):
     """
     Fügt dem gegebenen Bild ein Fadenkreuz in der Mitte hinzu.
     """
@@ -124,6 +120,51 @@ def add_crosshair(img, color=(255, 0, 0), line_width=1):
     draw.line([(center_x, 0), (center_x, h)], fill=color, width=line_width)
     draw.line([(0, center_y), (w, center_y)], fill=color, width=line_width)
     return img
+
+def create_interpolation_img(model, img1_pil, img2_pil, device, num_steps, interp_mode, img_size = (224, 224)):
+    """
+    Erstellt ein Bild mit Originalbildern links und rechts und Interpolationen dazwischen
+    """
+    # Erstelle Interpolationsschritte (inkl. Original-Bilder)
+    total_images = num_steps + 2  # Original + Interpolationen + Original
+    alphas = np.linspace(0, 1, total_images)
+    
+    images = []
+
+    mu1_flat, mu2_flat, org_mu_shape = calculate_mus_flattend(model, img1_pil, img2_pil, device)
+    for alpha in alphas:
+        img_pil = interpolate_latents(alpha, mu1_flat, mu2_flat, interp_mode, model, org_mu_shape)
+        images.append(img_pil)
+    
+    # Layout erstellen
+    img_width = total_images * img_size[0]
+    img_height = img_size[1] + 60
+    
+    new_img = Image.new('RGB', (img_width, img_height), (255, 255, 255))
+    
+    # Interpolationsbilder zusammenfügen
+    for i, img in enumerate(images):
+        x_pos = i * img_size[0]
+        y_pos = 50
+        
+        new_img.paste(img, (x_pos, y_pos))
+
+        draw = ImageDraw.Draw(new_img)
+        if i == 0:
+            label = "Original 1"
+        elif i == total_images - 1:
+            label = "Original 2" 
+        else:
+            alpha_value = alphas[i]
+            label = f"alpha={alpha_value:.2f}"
+        
+        text_bbox = draw.textbbox((0, 0), label)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_x = x_pos + (img_size[0] - text_width) // 2
+        
+        draw.text((text_x, 10), label, fill=(0, 0, 0))
+    
+    return new_img
 
 
 def main():
@@ -171,11 +212,8 @@ def main():
                 st.rerun()
         
         rotation = st.slider("Rotation für Bild 1 (°)", -180, 180, 0, 1, key=f"rotation_{st.session_state.reset_counter}")
-
         x_offset = st.slider("X-Verschiebung", -100, 100, 0, 1, key=f"x_offset_{st.session_state.reset_counter}")
-        
         y_offset = st.slider("Y-Verschiebung", -100, 100, 0, 1, key=f"y_offset_{st.session_state.reset_counter}")
-
         zoom = st.slider("Zoom", min_value=0.5, max_value=2.0, value=1.0, step=0.01, key=f"zoom_{st.session_state.reset_counter}")
 
         # Reset Button und Gitteranzeige
@@ -205,60 +243,72 @@ def main():
         with col2:
             st.image(add_border(overlay2), caption=f"Bild 2: {current_img2_name}", use_container_width=True)
 
+
         st.divider()
-        st.subheader("Latent Space Interpolation")
+        st.markdown("### 🚀 Starte Interpolation")
+        do_interpolation = st.checkbox("✨ Interpolation ausführen", value=False, key=f"do_interpolation_{st.session_state.reset_counter}",)
+        if do_interpolation:
+            # Interpolationscode
+            st.subheader("Latent Space Interpolation")
+            interp_mode = st.radio("Interpolationsmethode", options=["Linear", "SLERP"])
 
-        # Auswahl der Interpolationsmethode
-        interp_mode = st.radio("Interpolationsmethode", options=["Linear", "SLERP"])
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            model, _ = load_model(f"final_model.pth", device)
+            model.eval()
 
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model, _ = load_model(f"best_model.pth", device)
-        model.eval()
+            mu1_flat, mu2_flat, org_mu_shape = calculate_mus_flattend(model, result_img, img2_pil, device)
 
-        image1 = preprocess_image(result_img).to(device)
-        image2 = preprocess_image(img2_pil).to(device)
+            alpha = st.slider("Interpolationsfaktor", min_value=0.0, max_value=1.0, value=0.0, step=0.01)
+            img_pil = interpolate_latents(alpha, mu1_flat, mu2_flat, interp_mode, model, org_mu_shape)
+            st.image(img_pil, caption=f"Manuelle Interpolation (alpha = {alpha:.2f})", use_container_width=True)
 
-        with torch.no_grad():
-            mu1, _ = model.encode(image1)
-            mu2, _ = model.encode(image2)
+            # Download-Funktionalität für Interpolationsreihe
+            st.divider()
+            st.subheader("Interpolationsreihe erstellen und herunterladen")
+            
+            col_steps, col_download = st.columns([1, 1])
+            with col_steps:
+                num_steps = st.slider("Anzahl Interpolationsschritte", min_value=1, max_value=15, value=5, step=1)
+            with col_download:
+                if st.button("Interpolationsreihe generieren", use_container_width=True):
+                    with st.spinner("Generiere Interpolationsreihe..."):
+                        # Erstelle Interpolationsreihe
+                        interpolation_grid = create_interpolation_img(model, result_img, img2_pil, device, num_steps, interp_mode)
+                        
+                        # Konvertiere zu Bytes für Download
+                        img_buffer = io.BytesIO()
+                        interpolation_grid.save(img_buffer, format='PNG')
+                        img_buffer.seek(0)
+                        
+                        # Download Button
+                        st.download_button(
+                            label="💾 Interpolationsreihe herunterladen (PNG)",
+                            data=img_buffer.getvalue(),
+                            file_name=f"interpolation_{current_img1_name.split('.')[0]}_to_{current_img2_name.split('.')[0]}_{num_steps}_steps.png",
+                            mime="image/png",
+                            use_container_width=True
+                        )
+                        
+                        # Vorschau anzeigen
+                        st.image(interpolation_grid, caption=f"Interpolationsreihe: {num_steps} Schritte", use_container_width=True)
 
-        mu1_flat = mu1.view(1, -1)
-        mu2_flat = mu2.view(1, -1)
 
-        alpha = st.slider("Interpolationsfaktor", min_value=0.0, max_value=1.0, value=0.0, step=0.01)
+            # # --- Animation ---
+            # st.markdown("### Automatische Animation")
+            # play = st.button("▶️ Animation starten")
 
-        if interp_mode == "Linear":
-            z_interp_flat = linear(alpha, mu1_flat, mu2_flat)
-        else:  # SLERP
-            z_interp_flat = slerp(alpha, mu1_flat, mu2_flat)
+            # if play:
+            #     placeholder = st.empty()
+            #     steps = 50  # Anzahl Frames
+            #     delay = 0.05  # Sekundendelay pro Frame
 
-        z_interp = z_interp_flat.view_as(mu1) # Reshape to original latent shape
-        with torch.no_grad():
-            recon = model.decode(z_interp)
-
-        img_tensor = denormalize(recon.squeeze(0).cpu()).clamp(0, 1)  # [C, H, W]
-        img_pil = to_pil_image(img_tensor)
-
-        st.image(img_pil, caption=f"Manuelle Interpolation (α = {alpha:.2f})", use_container_width=True)
-
-        st.write(f"Tensor Min: {img_tensor.min():.4f}, Max: {img_tensor.max():.4f}, Mean: {img_tensor.mean():.4f}")
-
-        # # --- Animation ---
-        # st.markdown("### Automatische Animation")
-        # play = st.button("▶️ Animation starten")
-
-        # if play:
-        #     placeholder = st.empty()
-        #     steps = 50  # Anzahl Frames
-        #     delay = 0.05  # Sekundendelay pro Frame
-
-        #     # Hin und zurück
-        #     for direction in [1, -1]:
-        #         for i in range(steps + 1):
-        #             a = i / steps if direction == 1 else (steps - i) / steps
-        #             img = interpolate_latents(a, mu1_flat, mu2_flat, interp_mode, model)
-        #             placeholder.image(img, caption=f"Animation (α = {a:.2f})", use_container_width=True)
-        #             time.sleep(delay)
+            #     # Hin und zurück
+            #     for direction in [1, -1]:
+            #         for i in range(steps + 1):
+            #             a = i / steps if direction == 1 else (steps - i) / steps
+            #             img = interpolate_latents(a, mu1_flat, mu2_flat, interp_mode, model)
+            #             placeholder.image(img, caption=f"Animation (α = {a:.2f})", use_container_width=True)
+            #             time.sleep(delay)
 
     else:
         st.info("Bitte lade zwei Bilder hoch, um die Interpolation zu sehen.")

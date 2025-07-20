@@ -56,20 +56,14 @@ def rotate_shift_zoom(image, rotation_degree, x_offset, y_offset, zoom=1.0, fill
     orig_size = image.size
     zoomed_size = (int(orig_size[0] * zoom), int(orig_size[1] * zoom))
     zoomed_img = image.resize(zoomed_size, resample=Image.BICUBIC)
-
+    rotated_zoomed = zoomed_img.rotate(rotation_degree, resample=Image.BICUBIC, fillcolor=fill)
+    
     canvas_size = (image.width, image.height)
-    # 1. Bild rotieren mit weißem Hintergrund
-    rotated = zoomed_img.rotate(rotation_degree, resample=Image.BICUBIC, fillcolor=fill)
-    
-    # 2. Neues weißes Canvas erstellen
     canvas = Image.new("RGB", canvas_size, fill)
-    
-    # 3. Das rotierte Bild mit Offsets auf das Canvas verschieben
-    canvas.paste(rotated, (x_offset, y_offset))
-    
+    canvas.paste(rotated_zoomed, (x_offset, y_offset))
     return canvas
 
-def add_grid(img, grid_size=56, line_color=(255, 59, 48), line_width=2):
+def add_grid(img, grid_size=56, line_color=(255, 59, 48), line_width=1):
     """
     Zeichnet ein Raster direkt auf ein RGB-Bild.
     Transparenz ist dann nicht möglich, aber für einfarbige Linien reicht RGB.
@@ -110,7 +104,7 @@ def resize_and_pad(img, target_size=(224, 224), background_color=(255, 255, 255)
 
     return new_img
 
-def add_crosshair(img, color=(255, 59, 48), line_width=2):
+def add_crosshair(img, color=(255, 59, 48), line_width=1):
     """
     Fügt dem gegebenen Bild ein Fadenkreuz in der Mitte hinzu.
     """
@@ -168,6 +162,7 @@ def create_interpolation_img(model, img1_pil, img2_pil, device, num_steps, inter
 
 
 def main():
+
     st.title("Bildinterpolation mit Slider")
 
     # Session State für Reset-Funktionalität initialisieren
@@ -177,6 +172,19 @@ def main():
         st.session_state.last_img1_name = None
     if 'last_img2_name' not in st.session_state:
         st.session_state.last_img2_name = None
+    
+    # Modell nur einmal laden und in Session State speichern
+    if 'model' not in st.session_state or 'device' not in st.session_state:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        with st.spinner("Lade VAE-Modell..."):
+            model, _ = load_model("final_model.pth", device)
+            st.session_state.model = model
+            st.session_state.device = device
+        st.success(f"✅ Modell erfolgreich geladen auf: {device}")
+    else:
+        # Modell und Device aus Session State abrufen
+        model = st.session_state.model
+        device = st.session_state.device
 
     # Bildauswahl durch den Nutzer
     img1_file = st.file_uploader("Lade Bild 1 hoch", type=["png", "jpg", "jpeg"], key="img1")
@@ -252,10 +260,6 @@ def main():
             st.subheader("Latent Space Interpolation")
             interp_mode = st.radio("Interpolationsmethode", options=["Linear", "SLERP"])
 
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            model, _ = load_model(f"final_model.pth", device)
-            model.eval()
-
             mu1_flat, mu2_flat, org_mu_shape = calculate_mus_flattend(model, result_img, img2_pil, device)
 
             alpha = st.slider("Interpolationsfaktor", min_value=0.0, max_value=1.0, value=0.0, step=0.01)
@@ -311,7 +315,7 @@ def main():
             #             time.sleep(delay)
 
     else:
-        st.info("Bitte lade zwei Bilder hoch, um die Interpolation zu sehen.")
+        st.info("Bitte lade zwei Bilder hoch.")
 
 
 if __name__ == "__main__":

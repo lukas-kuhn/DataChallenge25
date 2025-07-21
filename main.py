@@ -182,7 +182,7 @@ def main():
     """
     Hauptfunktion für die Streamlit-Anwendung
     """
-    st.title("Bildinterpolation mit Slider")
+    st.title("Keltische Münzbildinterpolation")
 
     # Session State für Reset-Funktionalität initialisieren
     if 'reset_counter' not in st.session_state:
@@ -227,7 +227,7 @@ def main():
         # Überschrift und Reset-Button
         sub_header, button_col = st.columns([5, 1])
         with sub_header:
-            st.subheader("Bild-Transformationen")
+            st.subheader("Bild-Ausrichtung")
         with button_col:
             if st.button("🔄 Reset"):
                 st.session_state.reset_counter += 1
@@ -311,7 +311,7 @@ def main():
             # Anzeige des interpolierten Bildes
             col1_interp, col2_interp = st.columns(2)
             with col1_interp:
-                st.image(img_pil, caption=f"Manuelle Interpolation (alpha = {alpha:.2f})", use_container_width=True)
+                st.image(img_pil, caption=f"Interpolation mit alpha = {alpha:.2f}", use_container_width=True)
             with col2_interp:
                 with st.container():
                     # Spacer um Button nach unten zu drücken
@@ -354,7 +354,7 @@ def main():
                         )
                         
                         # Bildvorschau anzeigen
-                        st.image(interpolation_row, caption=f"Interpolationsreihe: {num_steps} Schritte", use_container_width=True)
+                        st.image(interpolation_row, caption=f"Vorschau: Interpolationsreihe mit {num_steps} Schritten", use_container_width=True)
 
     else:
         st.info("Bitte lade zwei Bilder hoch.")

@@ -32,6 +32,7 @@ def interpolate_latents(alpha, mu1_flat, mu2_flat, interp_mode, model, org_mu_sh
         z_interp_flat = slerp(alpha, mu1_flat, mu2_flat)
 
     z_interp = z_interp_flat.view(org_mu_shape)  # z. B. [1, 256, 14, 14]
+    z_interp = z_interp.to(dtype=torch.float32)
     
     with torch.no_grad():
         recon = model.decode(z_interp)
@@ -50,6 +51,7 @@ def calculate_mus_flattend(model, img1, img2, device):
 
     mu1_flat = mu1.view(1, -1)
     mu2_flat = mu2.view(1, -1)
+    
     return mu1_flat, mu2_flat, mu1.shape  # Rückgabe der Form für spätere Verwendung
 
 def rotate_shift_zoom(image, rotation_degree, x_offset, y_offset, zoom=1.0, fill=(255, 255, 255)):
@@ -65,11 +67,11 @@ def rotate_shift_zoom(image, rotation_degree, x_offset, y_offset, zoom=1.0, fill
 
 def add_grid(img, grid_size=56, line_color=(255, 59, 48), line_width=1):
     """
-    Zeichnet ein Raster direkt auf ein RGB-Bild.
-    Transparenz ist dann nicht möglich, aber für einfarbige Linien reicht RGB.
+    Zeichnet ein Raster auf eine Kopie des RGB-Bilds.
     """
-    draw = ImageDraw.Draw(img)
-    width, height = img.size
+    img_copy = img.copy()  # Erstelle eine Kopie!
+    draw = ImageDraw.Draw(img_copy)
+    width, height = img_copy.size
 
     # Vertikale Linien
     for x in range(0, width, grid_size):
@@ -79,7 +81,7 @@ def add_grid(img, grid_size=56, line_color=(255, 59, 48), line_width=1):
     for y in range(0, height, grid_size):
         draw.line([(0, y), (width, y)], fill=line_color, width=line_width)
 
-    return img
+    return img_copy
 
 def add_border(image, border_size=2, border_color=(0, 0, 0)):
     width, height = image.size
@@ -106,14 +108,15 @@ def resize_and_pad(img, target_size=(224, 224), background_color=(255, 255, 255)
 
 def add_crosshair(img, color=(255, 59, 48), line_width=1):
     """
-    Fügt dem gegebenen Bild ein Fadenkreuz in der Mitte hinzu.
+    Fügt einer Kopie des Bilds ein Fadenkreuz in der Mitte hinzu.
     """
-    w, h = img.size
-    draw = ImageDraw.Draw(img)
+    img_copy = img.copy()  # Erstelle eine Kopie!
+    w, h = img_copy.size
+    draw = ImageDraw.Draw(img_copy)
     center_x, center_y = w // 2, h // 2
     draw.line([(center_x, 0), (center_x, h)], fill=color, width=line_width)
     draw.line([(0, center_y), (w, center_y)], fill=color, width=line_width)
-    return img
+    return img_copy
 
 def create_interpolation_img(model, img1_pil, img2_pil, device, num_steps, interp_mode, img_size = (224, 224)):
     """
@@ -177,12 +180,11 @@ def main():
     if 'model' not in st.session_state or 'device' not in st.session_state:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         with st.spinner("Lade VAE-Modell..."):
-            model, _ = load_model("final_model.pth", device)
+            model, _ = load_model("best_model.pth", device)
             st.session_state.model = model
             st.session_state.device = device
         st.success(f"✅ Modell erfolgreich geladen auf: {device}")
     else:
-        # Modell und Device aus Session State abrufen
         model = st.session_state.model
         device = st.session_state.device
 
@@ -288,31 +290,13 @@ def main():
                         st.download_button(
                             label="💾 Interpolationsreihe herunterladen (PNG)",
                             data=img_buffer.getvalue(),
-                            file_name=f"interpolation_{current_img1_name.split('.')[0]}_to_{current_img2_name.split('.')[0]}_{num_steps}_steps.png",
+                            file_name=f"interpolation_{interp_mode}_{current_img1_name.split('.')[0]}_to_{current_img2_name.split('.')[0]}_{num_steps}_steps.png",
                             mime="image/png",
                             use_container_width=True
                         )
                         
                         # Vorschau anzeigen
                         st.image(interpolation_grid, caption=f"Interpolationsreihe: {num_steps} Schritte", use_container_width=True)
-
-
-            # # --- Animation ---
-            # st.markdown("### Automatische Animation")
-            # play = st.button("▶️ Animation starten")
-
-            # if play:
-            #     placeholder = st.empty()
-            #     steps = 50  # Anzahl Frames
-            #     delay = 0.05  # Sekundendelay pro Frame
-
-            #     # Hin und zurück
-            #     for direction in [1, -1]:
-            #         for i in range(steps + 1):
-            #             a = i / steps if direction == 1 else (steps - i) / steps
-            #             img = interpolate_latents(a, mu1_flat, mu2_flat, interp_mode, model)
-            #             placeholder.image(img, caption=f"Animation (α = {a:.2f})", use_container_width=True)
-            #             time.sleep(delay)
 
     else:
         st.info("Bitte lade zwei Bilder hoch.")

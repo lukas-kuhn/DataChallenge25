@@ -245,7 +245,7 @@ def main():
         with col_right:
             grid_type = st.radio("Gittertyp", ["Fadenkreuz", "Vollgitter"], horizontal=True, key=f"grid_type_{st.session_state.reset_counter}", label_visibility="collapsed")
         
-        result_img = rotate_shift_zoom(img1_pil, rotation, x_offset, -y_offset, zoom) # Y-Offset invertiert für intuitive Bedienung (negativ = nach unten)
+        result_img = rotate_shift_zoom(img1_pil, -rotation, x_offset, -y_offset, zoom) # Rotation & Y-Offset invertiert für intuitive Bedienung
 
         if show_grid:
             if grid_type == "Fadenkreuz":

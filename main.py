@@ -182,7 +182,7 @@ def main():
     """
     Hauptfunktion für die Streamlit-Anwendung
     """
-    st.title("Keltische Münzbildinterpolation")
+    st.title("Keltische Münzbildinterpolation \U0001FA99")
 
     # Session State für Reset-Funktionalität initialisieren
     if 'reset_counter' not in st.session_state:
@@ -227,9 +227,9 @@ def main():
         # Überschrift und Reset-Button
         sub_header, button_col = st.columns([5, 1])
         with sub_header:
-            st.subheader("Bild-Ausrichtung")
+            st.subheader("Bild-Ausrichtung \U0001F4D0")
         with button_col:
-            if st.button("🔄 Reset"):
+            if st.button("\U0001F501 Reset"):
                 st.session_state.reset_counter += 1
                 st.rerun()
         
@@ -275,7 +275,7 @@ def main():
         do_interpolation = True # Dieser Zeile müsste dann wieder entfernt werden
 
         if do_interpolation: # Immer true, da Checkbox entfernt
-            st.subheader("Interpolation")
+            st.subheader("Interpolation \U0001F9E0")
             interp_mode = st.radio("Interpolationsmethode", options=["Linear", "SLERP"])
 
             # Vektoren werden nur einmal pro Bildänderung berechnet
@@ -321,7 +321,7 @@ def main():
                     img_buffer_single.seek(0)
                     
                     st.download_button(
-                        label=f"💾 Download",
+                        label=f"\U0001F4BE Download",
                         data=img_buffer_single.getvalue(),
                         file_name=f"interpolation_{interp_mode}_alpha_{alpha:.2f}_{current_img1_name.split('.')[0]}_to_{current_img2_name.split('.')[0]}.png",
                         mime="image/png",
@@ -330,7 +330,7 @@ def main():
 
             # Download-Funktionalität für Interpolationsreihe
             st.divider()
-            st.subheader("Interpolationsreihe erstellen und herunterladen")
+            st.subheader("Interpolationsreihe erstellen und herunterladen \U0001F4E5")
             
             col_steps, col_download = st.columns([1, 1])
             with col_steps:
@@ -346,7 +346,7 @@ def main():
                         img_buffer.seek(0)
 
                         st.download_button(
-                            label="💾 Download",
+                            label="\U0001F4BE Download",
                             data=img_buffer.getvalue(),
                             file_name=f"interpolation_{interp_mode}_{current_img1_name.split('.')[0]}_to_{current_img2_name.split('.')[0]}_{num_steps}_steps.png",
                             mime="image/png",

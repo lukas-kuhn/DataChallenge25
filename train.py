@@ -86,9 +86,7 @@ def save_reconstruction_samples(model, dataloader, device, save_path, num_sample
     model.eval()
     with torch.no_grad():
         batch = next(iter(dataloader))
-        # Ensure we don't request more samples than available
-        actual_samples = min(num_samples, batch.size(0))
-        batch = batch[:actual_samples].to(device)
+        batch = batch[:num_samples].to(device)
         
         recon, _, _ = model(batch)
         
@@ -97,13 +95,9 @@ def save_reconstruction_samples(model, dataloader, device, save_path, num_sample
         recon_denorm = denormalize(recon.cpu())
         
         # Create comparison plot
-        fig, axes = plt.subplots(2, actual_samples, figsize=(2 * actual_samples, 4))
+        fig, axes = plt.subplots(2, num_samples, figsize=(2 * num_samples, 4))
         
-        # Handle case where actual_samples is 1 (axes won't be 2D)
-        if actual_samples == 1:
-            axes = axes.reshape(2, 1)
-        
-        for i in range(actual_samples):
+        for i in range(num_samples):
             # Original images
             axes[0, i].imshow(batch_denorm[i].permute(1, 2, 0).clamp(0, 1))
             axes[0, i].set_title('Original')
@@ -165,7 +159,7 @@ def train_epoch(model, dataloader, optimizer, device, beta=1.0, scaler=None):
             
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
         else:
@@ -173,14 +167,9 @@ def train_epoch(model, dataloader, optimizer, device, beta=1.0, scaler=None):
             recon, mu, logvar = model(batch)
             loss, recon_loss, kl_loss = vae_loss(recon, batch, mu, logvar, beta)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
         
-        # Check for NaN values
-        if torch.isnan(loss) or torch.isinf(loss):
-            print(f"Warning: NaN or Inf loss detected at step {len(pbar)}. Skipping batch.")
-            continue
-            
         total_loss += loss.item()
         total_recon_loss += recon_loss.item()
         total_kl_loss += kl_loss.item()
@@ -235,14 +224,13 @@ def main():
     parser.add_argument('--output_dir', type=str, default='outputs', help='Output directory for models and logs')
     parser.add_argument('--batch_size', type=int, default=4, help='Batch size')
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs')
-    parser.add_argument('--learning_rate', type=float, default=1e-5, help='Learning rate')
-    parser.add_argument('--beta', type=float, default=0.01, help='Beta for KL loss weighting')
+    parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate')
+    parser.add_argument('--beta', type=float, default=1.0, help='Beta for KL loss weighting')
     parser.add_argument('--beta_schedule', action='store_true', help='Use beta scheduling')
-    parser.add_argument('--latent_dim', type=int, default=1024, help='Latent dimension')
-    parser.add_argument('--model_channels', type=int, default=128, help='Base model channels')
-    parser.add_argument('--num_res_blocks', type=int, default=3, help='Number of residual blocks per down/up block')
+    parser.add_argument('--latent_dim', type=int, default=256, help='Latent dimension')
+    parser.add_argument('--model_channels', type=int, default=96, help='Base model channels')
+    parser.add_argument('--num_res_blocks', type=int, default=2, help='Number of residual blocks per down/up block')
     parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate')
-    parser.add_argument('--skip_dropout', type=float, default=0.1, help='Skip connection dropout rate')
     parser.add_argument('--resume', type=str, default=None, help='Path to checkpoint to resume from')
     parser.add_argument('--validation_split', type=float, default=0.1, help='Validation split ratio')
     parser.add_argument('--save_every', type=int, default=10, help='Save model every N epochs')
@@ -320,11 +308,10 @@ def main():
         in_channels=3,
         latent_dim=args.latent_dim,
         model_channels=args.model_channels,
-        channel_mult=(1, 2, 3, 4, 5, 6),  # Scaled up for fine-grained details
+        channel_mult=(1, 1, 2, 3, 4),  # Memory-optimized for 16GB VRAM
         num_res_blocks=args.num_res_blocks,
-        attention_resolutions=(32, 16, 8),  # Multi-scale attention for better details
-        dropout=args.dropout,
-        skip_dropout=args.skip_dropout
+        attention_resolutions=(16,),  # Single attention resolution to save memory
+        dropout=args.dropout
     ).to(device)
     
     # Count parameters
@@ -333,8 +320,8 @@ def main():
     print(f"Total parameters: {total_params:,}")
     print(f"Trainable parameters: {trainable_params:,}")
     
-    # Optimizer and scheduler with more conservative settings
-    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-8, eps=1e-8)
+    # Optimizer and scheduler
+    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-6)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.num_epochs)
     
     # Resume from checkpoint if specified
@@ -361,8 +348,8 @@ def main():
         
         # Beta scheduling for KL loss
         if args.beta_schedule:
-            # Gradually increase beta from 0 to target value over more epochs
-            beta = min(args.beta, args.beta * (epoch / 100))
+            # Gradually increase beta from 0 to target value
+            beta = min(args.beta, args.beta * (epoch / 50))
         else:
             beta = args.beta
         
@@ -402,7 +389,36 @@ def main():
                 'train_time': train_time,
                 'val_time': val_time
             })
-
+        
+        # Save best model
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'best_val_loss': best_val_loss,
+                'train_losses': train_losses,
+                'val_losses': val_losses,
+                'config': vars(args)
+            }, os.path.join(args.output_dir, 'checkpoints', 'best_model.pth'))
+            
+            print(f"New best validation loss: {best_val_loss:.4f}")
+        
+        # Save periodic checkpoint
+        if (epoch + 1) % args.save_every == 0:
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'best_val_loss': best_val_loss,
+                'train_losses': train_losses,
+                'val_losses': val_losses,
+                'config': vars(args)
+            }, os.path.join(args.output_dir, 'checkpoints', f'checkpoint_epoch_{epoch + 1}.pth'))
+        
         # Save sample reconstructions and generations
         if (epoch + 1) % 5 == 0:
             recon_fig = save_reconstruction_samples(

@@ -10,7 +10,9 @@ from inference import load_model, preprocess_image
 from train import denormalize
 
 def slerp(val, low, high):
-    # Implementation der slerp zwischen low und high bei val (0 <= val <= 1)
+    """
+    Implementation der slerp zwischen low und high bei val (0 <= val <= 1)
+    """
     low_norm = low / torch.norm(low, dim=-1, keepdim=True)
     high_norm = high / torch.norm(high, dim=-1, keepdim=True)
     dot = (low_norm * high_norm).sum(dim=-1, keepdim=True).clamp(-1.0, 1.0)
@@ -22,16 +24,21 @@ def slerp(val, low, high):
     return (torch.sin((1.0 - val) * omega) / so) * low + (torch.sin(val * omega) / so) * high
 
 def linear(val, low, high):
-    # Lineare Interpolation zwischen low und high bei val (0 <= val <= 1)
+    """
+    Lineare Interpolation zwischen low und high bei val (0 <= val <= 1)
+    """
     return (1 - val) * low + val * high
 
 def interpolate_latents(alpha, mu1_flat, mu2_flat, interp_mode, model, org_mu_shape):
+    """
+    Interpoliert zwischen mu1 und mu2 basierend auf dem Interpolationsmodus
+    """
     if interp_mode == "Linear":
         z_interp_flat = linear(alpha, mu1_flat, mu2_flat)
     else:  # SLERP
         z_interp_flat = slerp(alpha, mu1_flat, mu2_flat)
 
-    z_interp = z_interp_flat.view(org_mu_shape)  # z. B. [1, 256, 14, 14]
+    z_interp = z_interp_flat.view(org_mu_shape)
     z_interp = z_interp.to(dtype=torch.float32)
     
     with torch.no_grad():
@@ -42,6 +49,9 @@ def interpolate_latents(alpha, mu1_flat, mu2_flat, interp_mode, model, org_mu_sh
     return img_pil
 
 def calculate_mus_flattend(model, img1, img2, device):
+    """ 
+    Berechnet die latenten Vektoren (mu) für zwei Bilder und gibt sie geflatted zurück
+    """
     image1 = preprocess_image(img1).to(device)
     image2 = preprocess_image(img2).to(device)
 
@@ -51,10 +61,12 @@ def calculate_mus_flattend(model, img1, img2, device):
 
     mu1_flat = mu1.view(1, -1)
     mu2_flat = mu2.view(1, -1)
-    
     return mu1_flat, mu2_flat, mu1.shape  # Rückgabe der Form für spätere Verwendung
 
 def rotate_shift_zoom(image, rotation_degree, x_offset, y_offset, zoom=1.0, fill=(255, 255, 255)):
+    """ 
+    Rotiert, verschiebt und zoomt ein Bild 
+    """
     orig_size = image.size
     zoomed_size = (int(orig_size[0] * zoom), int(orig_size[1] * zoom))
     zoomed_img = image.resize(zoomed_size, resample=Image.BICUBIC)
@@ -69,7 +81,7 @@ def add_grid(img, grid_size=56, line_color=(255, 59, 48), line_width=1):
     """
     Zeichnet ein Raster auf eine Kopie des RGB-Bilds.
     """
-    img_copy = img.copy()  # Erstelle eine Kopie!
+    img_copy = img.copy()
     draw = ImageDraw.Draw(img_copy)
     width, height = img_copy.size
 
@@ -84,6 +96,9 @@ def add_grid(img, grid_size=56, line_color=(255, 59, 48), line_width=1):
     return img_copy
 
 def add_border(image, border_size=2, border_color=(0, 0, 0)):
+    """ 
+    Fügt dem Bild einen Rahmen hinzu.
+    """
     width, height = image.size
     new_size = (width + 2 * border_size, height + 2 * border_size)
     bordered = Image.new("RGB", new_size, border_color)
@@ -110,7 +125,7 @@ def add_crosshair(img, color=(255, 59, 48), line_width=1):
     """
     Fügt einer Kopie des Bilds ein Fadenkreuz in der Mitte hinzu.
     """
-    img_copy = img.copy()  # Erstelle eine Kopie!
+    img_copy = img.copy()
     w, h = img_copy.size
     draw = ImageDraw.Draw(img_copy)
     center_x, center_y = w // 2, h // 2
@@ -122,7 +137,6 @@ def create_interpolation_img(model, img1_pil, img2_pil, device, num_steps, inter
     """
     Erstellt ein Bild mit Originalbildern links und rechts und Interpolationen dazwischen
     """
-    # Erstelle Interpolationsschritte (inkl. Original-Bilder)
     total_images = num_steps + 2  # Original + Interpolationen + Original
     alphas = np.linspace(0, 1, total_images)
     
@@ -165,7 +179,9 @@ def create_interpolation_img(model, img1_pil, img2_pil, device, num_steps, inter
 
 
 def main():
-
+    """
+    Hauptfunktion für die Streamlit-Anwendung
+    """
     st.title("Bildinterpolation mit Slider")
 
     # Session State für Reset-Funktionalität initialisieren
@@ -192,47 +208,42 @@ def main():
     img1_file = st.file_uploader("Lade Bild 1 hoch", type=["png", "jpg", "jpeg"], key="img1")
     img2_file = st.file_uploader("Lade Bild 2 hoch", type=["png", "jpg", "jpeg"], key="img2")
 
-
+    # Bild1 Transformationen
     if img1_file and img2_file:
-
         st.divider()
 
-        # Prüfe, ob sich die Bilder geändert haben
+        # Prüfe, ob sich Bilder geändert haben
         current_img1_name = img1_file.name
         current_img2_name = img2_file.name
         
-        if (st.session_state.last_img1_name != current_img1_name or 
-            st.session_state.last_img2_name != current_img2_name):
-            # Bilder haben sich geändert - Reset auslösen
+        if (st.session_state.last_img1_name != current_img1_name or st.session_state.last_img2_name != current_img2_name):
             st.session_state.reset_counter += 1
             st.session_state.last_img1_name = current_img1_name
             st.session_state.last_img2_name = current_img2_name
 
-
         img1_pil = resize_and_pad(Image.open(img1_file))
         img2_pil = resize_and_pad(Image.open(img2_file))
         
-
+        # Überschrift und Reset-Button
         sub_header, button_col = st.columns([5, 1])
         with sub_header:
             st.subheader("Bild-Transformationen")
         with button_col:
-            if st.button("🔄 Reset", help="Setzt alle Transformationsparameter zurück"):
+            if st.button("🔄 Reset"):
                 st.session_state.reset_counter += 1
                 st.rerun()
         
-        rotation = st.slider("Rotation für Bild 1 (°)", -180, 180, 0, 1, key=f"rotation_{st.session_state.reset_counter}")
+        rotation = st.slider("Rotation (°)", -180, 180, 0, 1, key=f"rotation_{st.session_state.reset_counter}")
         x_offset = st.slider("X-Verschiebung", -100, 100, 0, 1, key=f"x_offset_{st.session_state.reset_counter}")
         y_offset = st.slider("Y-Verschiebung", -100, 100, 0, 1, key=f"y_offset_{st.session_state.reset_counter}")
         zoom = st.slider("Zoom", min_value=0.5, max_value=2.0, value=1.0, step=0.01, key=f"zoom_{st.session_state.reset_counter}")
 
-        # Reset Button und Gitteranzeige
+        # Gittereinstellungen
         col_left, col_right = st.columns([2, 1])
         with col_left:
             show_grid = st.checkbox("Gitter anzeigen", value=True, key=f"show_grid_{st.session_state.reset_counter}")
         with col_right:
-            grid_type = st.radio("", ["Fadenkreuz", "Vollgitter"], horizontal=True, label_visibility="collapsed", key=f"grid_type_{st.session_state.reset_counter}")
-
+            grid_type = st.radio("Gittertyp", ["Fadenkreuz", "Vollgitter"], horizontal=True, key=f"grid_type_{st.session_state.reset_counter}", label_visibility="collapsed")
 
         result_img = rotate_shift_zoom(img1_pil, rotation, x_offset, y_offset, zoom)
 
@@ -247,26 +258,75 @@ def main():
             overlay1 = result_img
             overlay2 = img2_pil
 
+        # Anzeige der Bilder mit Rahmen
         col1, col2 = st.columns(2)
         with col1:
             st.image(add_border(overlay1), caption=f"Bild 1: {current_img1_name}", use_container_width=True)
         with col2:
             st.image(add_border(overlay2), caption=f"Bild 2: {current_img2_name}", use_container_width=True)
 
-
+        # Interpolationscode
         st.divider()
-        st.markdown("### 🚀 Starte Interpolation")
-        do_interpolation = st.checkbox("✨ Interpolation ausführen", value=False, key=f"do_interpolation_{st.session_state.reset_counter}",)
-        if do_interpolation:
-            # Interpolationscode
-            st.subheader("Latent Space Interpolation")
+
+        # Dieser Bereich wurde entfernt, da Checkbox nicht mehr benötigt wird
+        # Wenn die Performance zu schlecht ist, kann die Checkbox wieder hinzugefügt werden
+        # st.subheader("Starte Interpolation")
+        # do_interpolation = st.checkbox("Interpolation anzeigen", value=False, key=f"do_interpolation_{st.session_state.reset_counter}",)
+        do_interpolation = True # Dieser Zeile müsste dann wieder entfernt werden
+
+        if do_interpolation: # Immer true, da Checkbox entfernt
+            st.subheader("Interpolation")
             interp_mode = st.radio("Interpolationsmethode", options=["Linear", "SLERP"])
 
-            mu1_flat, mu2_flat, org_mu_shape = calculate_mus_flattend(model, result_img, img2_pil, device)
+            # Vektoren werden nur einmal pro Bildänderung berechnet
+            # Vektoren werden gecacht, aber es wird geprüft, ob sich Eingabebilder geändert haben
+            mu_cache = st.session_state.get("mu_cache", {})
+            cache_img1 = mu_cache.get("img1_bytes")
+            cache_img2 = mu_cache.get("img2_bytes")
+            cache_counter = mu_cache.get("counter")
+
+            # Hole aktuelle Bildbytes für Vergleich
+            img1_bytes = result_img.tobytes()
+            img2_bytes = img2_pil.tobytes()
+
+            # Wenn sich die Bilder oder der Counter geändert haben, wird neu berechnet
+            if (cache_img1 != img1_bytes or cache_img2 != img2_bytes or cache_counter != st.session_state.reset_counter):
+                mu1_flat, mu2_flat, org_mu_shape = calculate_mus_flattend(model, result_img, img2_pil, device)
+                st.session_state.mu_cache = {
+                    "mu1_flat": mu1_flat,
+                    "mu2_flat": mu2_flat,
+                    "org_mu_shape": org_mu_shape,
+                    "img1_bytes": img1_bytes,
+                    "img2_bytes": img2_bytes,
+                    "counter": st.session_state.reset_counter
+                }
+            else:
+                mu1_flat = mu_cache["mu1_flat"]
+                mu2_flat = mu_cache["mu2_flat"]
+                org_mu_shape = mu_cache["org_mu_shape"]
 
             alpha = st.slider("Interpolationsfaktor", min_value=0.0, max_value=1.0, value=0.0, step=0.01)
             img_pil = interpolate_latents(alpha, mu1_flat, mu2_flat, interp_mode, model, org_mu_shape)
-            st.image(img_pil, caption=f"Manuelle Interpolation (alpha = {alpha:.2f})", use_container_width=True)
+            
+            # Anzeige des interpolierten Bildes
+            col1_interp, col2_interp = st.columns(2)
+            with col1_interp:
+                st.image(img_pil, caption=f"Manuelle Interpolation (alpha = {alpha:.2f})", use_container_width=True)
+            with col2_interp:
+                with st.container():
+                    # Spacer um Button nach unten zu drücken
+                    st.markdown("<div style='height: 335px;'></div>", unsafe_allow_html=True)
+                    img_buffer_single = io.BytesIO()
+                    img_pil.save(img_buffer_single, format='PNG')
+                    img_buffer_single.seek(0)
+                    
+                    st.download_button(
+                        label=f"💾 Download",
+                        data=img_buffer_single.getvalue(),
+                        file_name=f"interpolation_{interp_mode}_alpha_{alpha:.2f}_{current_img1_name.split('.')[0]}_to_{current_img2_name.split('.')[0]}.png",
+                        mime="image/png",
+                        use_container_width=True,
+                    )
 
             # Download-Funktionalität für Interpolationsreihe
             st.divider()
@@ -279,24 +339,22 @@ def main():
                 if st.button("Interpolationsreihe generieren", use_container_width=True):
                     with st.spinner("Generiere Interpolationsreihe..."):
                         # Erstelle Interpolationsreihe
-                        interpolation_grid = create_interpolation_img(model, result_img, img2_pil, device, num_steps, interp_mode)
+                        interpolation_row = create_interpolation_img(model, result_img, img2_pil, device, num_steps, interp_mode)
                         
-                        # Konvertiere zu Bytes für Download
                         img_buffer = io.BytesIO()
-                        interpolation_grid.save(img_buffer, format='PNG')
+                        interpolation_row.save(img_buffer, format='PNG')
                         img_buffer.seek(0)
-                        
-                        # Download Button
+
                         st.download_button(
-                            label="💾 Interpolationsreihe herunterladen (PNG)",
+                            label="💾 Download",
                             data=img_buffer.getvalue(),
                             file_name=f"interpolation_{interp_mode}_{current_img1_name.split('.')[0]}_to_{current_img2_name.split('.')[0]}_{num_steps}_steps.png",
                             mime="image/png",
                             use_container_width=True
                         )
                         
-                        # Vorschau anzeigen
-                        st.image(interpolation_grid, caption=f"Interpolationsreihe: {num_steps} Schritte", use_container_width=True)
+                        # Bildvorschau anzeigen
+                        st.image(interpolation_row, caption=f"Interpolationsreihe: {num_steps} Schritte", use_container_width=True)
 
     else:
         st.info("Bitte lade zwei Bilder hoch.")

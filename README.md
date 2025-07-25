@@ -1,7 +1,7 @@
 # Readme Keltische Münzbildinterpolation
 - Google Drive Link der Modelle:
-  - best_model.pth für die Interpolation
-  - final_model.pth für das Clustering
+  - best_model.pth für die Interpolation [Link](https://drive.google.com/file/d/1QDXUe1mHTeC4rJpypoFuB4bqCmoPwcBk/view?usp=drive_link)
+  - final_model.pth für das Clustering [Link](https://drive.google.com/file/d/1QDXUe1mHTeC4rJpypoFuB4bqCmoPwcBk/view?usp=drive_link)
   - **beide Modelle sind nur für die Münzvorderseiten geeignet**
 
  - Starten des Streamlit Dashboards: 
